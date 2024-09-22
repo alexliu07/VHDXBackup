@@ -2,3 +2,5 @@
 /output/
 /venv/
 /test/
+/.idea/
+/__pycache__/
