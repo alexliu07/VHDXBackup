@@ -12,7 +12,7 @@ config_path = '{}\\config.json'.format(work_dir)
 data_path = '{}\\disks'.format(work_dir)
 config = {}
 virtual_disks = {}
-version = '1.0.0'
+version = '1.0.1'
 
 
 class MainWindow:
@@ -603,8 +603,8 @@ class SettingWindow:
             return
         # 保存
         config['backup_path'] = self.backup_path_input.get()
-        config['chunk_size'] = self.chunk_size_input.get()
-        config['max_threads'] = self.max_threads_input.get()
+        config['chunk_size'] = int(self.chunk_size_input.get())
+        config['max_threads'] = int(self.max_threads_input.get())
         with open(config_path, 'w+', encoding='utf-8') as f:
             f.write(str(config).replace("'", '"'))
         self.win.destroy()
@@ -811,8 +811,13 @@ class Task:
         # 创建任务列表组件
         self.frame, self.percentage_text, self.progress_bar, self.progress_text, self.cancel_btn = self.task_info(
             self.task_window.task_frame)
-        # 启动任务
-        self.start_task()
+
+    def edit_progress_text(self,text):
+        """
+        调用时编辑进度内容
+        :return: void
+        """
+        self.progress_text.configure(text=text)
 
     def md5sum(self, path):
         """
@@ -898,14 +903,14 @@ class Task:
         total_size = os.path.getsize(self.source) - 1
         self.total_size = total_size + 1
         # 计算文件MD5值
-        self.progress_text.config(text='正在计算源文件MD5...')
+        self.progress_text.configure(text='正在计算源文件MD5...')
         source_md5 = self.md5sum(self.source)
         if self.stop:
             thread_pool.shutdown()
             self.finish_task()
             return
         # 创建空文件
-        self.progress_text.config(text='正在复制文件...')
+        self.progress_text.configure(text='正在复制文件...')
         file = open(self.destination, 'w+')
         file.close()
         # 分块拷贝
@@ -926,12 +931,10 @@ class Task:
             self.finish_task()
             return
         # 验证MD5
-        self.progress_text.config(text='正在验证文件MD5...')
+        self.progress_text.configure(text='正在验证文件MD5...')
         destination_md5 = self.md5sum(self.destination)
         if not source_md5 == destination_md5:
             AlartWindow(self.task_window.win, '错误', '文件复制时出现问题').show()
-        # 完成任务
-        self.finish_task()
 
     def finish_task(self):
         """
@@ -1001,14 +1004,23 @@ class VirtualDisk:
         main_window.update_task_count(task_window.task_count)
         # 创建并执行任务
         task = Task(0, self.path, target_path, task_window, main_window)
+        task.start_task()
         # 任务取消
         if task.stop:
             self.task_state[0] = False
             main_window.backup_main_btn.configure(state=ttk.NORMAL)
-            self.finish_backup_task(task_window, main_window)
+            self.finish_backup_task(task_window, main_window,task)
             return
         # 任务完成后保存记录
-        md5 = md5sum(target_path)
+        task.edit_progress_text('正在计算文件MD5...')
+        md5 = task.md5sum(target_path)
+        # 任务取消
+        if task.stop:
+            self.task_state[0] = False
+            main_window.backup_main_btn.configure(state=ttk.NORMAL)
+            self.finish_backup_task(task_window, main_window,task)
+            return
+        task.edit_progress_text('正在保存记录...')
         size = hum_convert(os.path.getsize(target_path))
         self.backupList[backup_id] = {'id': backup_id, 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                                       'type': 0, 'size': size, 'md5': md5}
@@ -1018,7 +1030,7 @@ class VirtualDisk:
         self.task_state[0] = False
         # 完成任务
         main_window.backup_main_btn.configure(state=ttk.NORMAL)
-        self.finish_backup_task(task_window, main_window)
+        self.finish_backup_task(task_window, main_window,task)
 
     def backup_parent(self, task_window, main_window):
         """
@@ -1046,14 +1058,23 @@ class VirtualDisk:
         main_window.update_task_count(task_window.task_count)
         # 创建并执行任务
         task = Task(1, self.parentPath, target_path, task_window, main_window)
+        task.start_task()
         # 任务取消
         if task.stop:
             self.task_state[1] = False
             main_window.backup_parent_btn.configure(state=ttk.NORMAL)
-            self.finish_backup_task(task_window, main_window)
+            self.finish_backup_task(task_window, main_window,task)
             return
         # 任务完成后保存记录
-        md5 = md5sum(target_path)
+        task.edit_progress_text('正在计算文件MD5...')
+        md5 = task.md5sum(target_path)
+        # 任务取消
+        if task.stop:
+            self.task_state[0] = False
+            main_window.backup_main_btn.configure(state=ttk.NORMAL)
+            self.finish_backup_task(task_window, main_window,task)
+            return
+        task.edit_progress_text('正在保存记录...')
         size = hum_convert(os.path.getsize(target_path))
         self.backupList[backup_id] = {'id': backup_id, 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                                       'type': 1, 'size': size, 'md5': md5}
@@ -1063,11 +1084,12 @@ class VirtualDisk:
         self.task_state[1] = False
         # 完成任务
         main_window.backup_parent_btn.configure(state=ttk.NORMAL)
-        self.finish_backup_task(task_window, main_window)
+        self.finish_backup_task(task_window, main_window,task)
 
-    def finish_backup_task(self, task_window, main_window):
+    def finish_backup_task(self, task_window, main_window,task):
         """
         完成任务
+        :param task: 任务对象
         :param task_window: 任务窗口
         :param main_window: 主窗口
         :return:
@@ -1076,6 +1098,7 @@ class VirtualDisk:
         task_window.update_hint()
         main_window.update_task_count(task_window.task_count)
         main_window.backup_restore_btn.configure(state=ttk.NORMAL)
+        task.finish_task()
 
     def restore(self, task_window, main_window, backup_id):
         # 确认恢复
@@ -1097,14 +1120,21 @@ class VirtualDisk:
         # 创建并执行任务
         target_path = self.parentPath if self.backupList[backup_id]['type'] else self.path
         task = Task(2, source_path, target_path, task_window, main_window)
+        # 验证MD5
+        task.edit_progress_text('正在验证备份文件MD5...')
+        md5 = task.md5sum(source_path)
+        if md5 != self.backupList[backup_id]['md5']:
+            AlartWindow(main_window,'错误','备份文件MD5与记录的MD5不相同\n无法进行恢复')
         # 任务取消
         if task.stop:
-            self.finish_restore_task(task_window, main_window)
+            self.finish_restore_task(task_window, main_window,task)
             return
+        # 运行任务
+        task.start_task()
         # 完成任务
-        self.finish_restore_task(task_window, main_window)
+        self.finish_restore_task(task_window, main_window,task)
 
-    def finish_restore_task(self, task_window, main_window):
+    def finish_restore_task(self, task_window, main_window,task):
         """
         完成还原任务
         :return: void
@@ -1113,7 +1143,7 @@ class VirtualDisk:
         main_window.backup_main_btn.configure(state=ttk.NORMAL)
         if self.hasParent:
             main_window.backup_parent_btn.configure(state=ttk.NORMAL)
-        self.finish_backup_task(task_window, main_window)
+        self.finish_backup_task(task_window, main_window,task)
 
 
 if __name__ == '__main__':
